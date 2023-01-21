@@ -17,4 +17,3 @@ Firmware for the [L3X-Z](https://github.com/107-systems/l3xz) auxiliary controll
 arduino-cli compile -b rp2040:rp2040:rpipico -v .
 arduino-cli upload -b rp2040:rp2040:rpipico -v . -p /dev/ttyACM0
 ```
-
