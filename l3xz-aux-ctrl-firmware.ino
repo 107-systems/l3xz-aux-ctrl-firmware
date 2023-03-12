@@ -63,7 +63,7 @@ static int8_t const LIGHT_MODE_AMBER = 5;
  **************************************************************************************/
 
 void onReceiveBufferFull(CanardFrame const & frame);
-void onLightMode_Received(Integer8_1_0<ID_LIGHT_MODE> const & msg);
+void onLightMode_Received(Integer8_1_0 const & msg);
 
 /**************************************************************************************
  * GLOBAL VARIABLES
@@ -89,26 +89,26 @@ ArduinoMCP2515 mcp2515([]()
 Node::Heap<Node::DEFAULT_O1HEAP_SIZE> node_heap;
 Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const & frame) { return mcp2515.transmit(frame); }, DEFAULT_AUX_CONTROLLER_NODE_ID);
 
-Publisher<Heartbeat_1_0<>> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0<>>
-  (Heartbeat_1_0<>::PORT_ID, 1*1000*1000UL /* = 1 sec in usecs. */);
+Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>
+  (Heartbeat_1_0::_traits_::FixedPortId, 1*1000*1000UL /* = 1 sec in usecs. */);
 
 static Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
 
 Subscription light_mode_subscription =
-  node_hdl.create_subscription<Integer8_1_0<ID_LIGHT_MODE>>(
+  node_hdl.create_subscription<Integer8_1_0>(
     ID_LIGHT_MODE,
     CANARD_DEFAULT_TRANSFER_ID_TIMEOUT_USEC,
-    [&neo_pixel_ctrl](Integer8_1_0<ID_LIGHT_MODE> const & msg)
+    [&neo_pixel_ctrl](Integer8_1_0 const & msg)
     {
-      if (msg.data.value == LIGHT_MODE_RED)
+      if (msg.value == LIGHT_MODE_RED)
         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 0, 0));
-      else if (msg.data.value == LIGHT_MODE_GREEN)
+      else if (msg.value == LIGHT_MODE_GREEN)
         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 55, 0));
-      else if (msg.data.value == LIGHT_MODE_BLUE)
+      else if (msg.value == LIGHT_MODE_BLUE)
         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 0, 55));
-      else if (msg.data.value == LIGHT_MODE_WHITE)
+      else if (msg.value == LIGHT_MODE_WHITE)
         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
-      else if (msg.data.value == LIGHT_MODE_AMBER)
+      else if (msg.value == LIGHT_MODE_AMBER)
         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 40, 0));
       else
         neo_pixel_ctrl.clear();
@@ -118,9 +118,16 @@ Subscription light_mode_subscription =
 
 /* REGISTER ***************************************************************************/
 
-static RegisterNatural8 reg_rw_cyphal_node_id         ("cyphal.node.id",          Register::Access::ReadWrite, Register::Persistent::No, DEFAULT_AUX_CONTROLLER_NODE_ID, [&node_hdl](uint8_t const & val) { node_hdl.setNodeId(val); });
-static RegisterString   reg_ro_cyphal_node_description("cyphal.node.description", Register::Access::ReadWrite, Register::Persistent::No, "L3X-Z AUX_CONTROLLER");
-static RegisterList     reg_list(node_hdl);
+static CanardNodeID node_id = DEFAULT_AUX_CONTROLLER_NODE_ID;
+
+#if __GNUC__ >= 11
+
+Registry reg(node_hdl, micros);
+
+const auto reg_rw_cyphal_node_id = reg.expose("cyphal.node.id", node_id);
+const auto reg_ro_cyphal_node_description = reg.route("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER" });
+
+#endif /* __GNUC__ >= 11 */
 
 /* NODE INFO **************************************************************************/
 
@@ -140,8 +147,6 @@ static NodeInfo node_info
   /* saturated uint8[<=50] name */
   "107-systems.l3xz-aux-ctrl"
 );
-
-Heartbeat_1_0<> hb_msg;
 
 /**************************************************************************************
  * SETUP/LOOP
@@ -170,17 +175,6 @@ void setup()
   mcp2515.setBitRate(CanBitRate::BR_250kBPS_16MHZ);
   mcp2515.setNormalMode();
 
-  /* Configure initial heartbeat */
-  hb_msg.data.uptime = 0;
-  hb_msg.data.health.value = uavcan_node_Health_1_0_NOMINAL;
-  hb_msg.data.mode.value = uavcan_node_Mode_1_0_INITIALIZATION;
-  hb_msg.data.vendor_specific_status_code = 0;
-
-  /* Register callbacks.
-   */
-  reg_list.add(reg_rw_cyphal_node_id);
-  reg_list.add(reg_ro_cyphal_node_description);
-
   /* Initialize NeoPixel control. */
   neo_pixel_ctrl.begin();
   neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
@@ -208,9 +202,14 @@ void loop()
   {
     prev_heartbeat = now;
 
-    hb_msg.data.uptime = millis() / 1000;
-    hb_msg.data.mode.value = uavcan_node_Mode_1_0_OPERATIONAL;
-    heartbeat_pub->publish(hb_msg);
+    Heartbeat_1_0 msg;
+
+    msg.uptime = millis() / 1000;
+    msg.health.value = uavcan::node::Health_1_0::NOMINAL;
+    msg.mode.value = uavcan::node::Mode_1_0::OPERATIONAL;
+    msg.vendor_specific_status_code = 0;
+
+    heartbeat_pub->publish(msg);
   }
 }
 
