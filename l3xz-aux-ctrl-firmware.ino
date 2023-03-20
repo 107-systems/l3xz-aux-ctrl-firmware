@@ -122,10 +122,10 @@ static CanardNodeID node_id = DEFAULT_AUX_CONTROLLER_NODE_ID;
 
 #if __GNUC__ >= 11
 
-Registry node_registry(node_hdl, micros);
+const auto node_registry = node_hdl.create_registry();
 
-const auto reg_rw_cyphal_node_id          = node_registry.expose("cyphal.node.id", {}, node_id);
-const auto reg_ro_cyphal_node_description = node_registry.route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
+const auto reg_rw_cyphal_node_id          = node_registry->expose("cyphal.node.id", {}, node_id);
+const auto reg_ro_cyphal_node_description = node_registry->route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
 
 #endif /* __GNUC__ >= 11 */
 
@@ -139,7 +139,6 @@ void setup()
   while (!Serial) { }
 
   /* NODE INFO **************************************************************************/
-
   static const auto node_info = node_hdl.create_node_info
   (
     /* cyphal.node.Version.1.0 protocol_version */
