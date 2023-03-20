@@ -71,7 +71,6 @@ void onLightMode_Received(Integer8_1_0 const & msg);
 
 ArduinoMCP2515 mcp2515([]()
                        {
-                         noInterrupts();
                          SPI.beginTransaction(MCP2515x_SPI_SETTING);
                          digitalWrite(MCP2515_CS_PIN, LOW);
                        },
@@ -79,7 +78,6 @@ ArduinoMCP2515 mcp2515([]()
                        {
                          digitalWrite(MCP2515_CS_PIN, HIGH);
                          SPI.endTransaction();
-                         interrupts();
                        },
                        [](uint8_t const d) { return SPI.transfer(d); },
                        micros,
@@ -92,14 +90,15 @@ Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>
   (Heartbeat_1_0::_traits_::FixedPortId, 1*1000*1000UL /* = 1 sec in usecs. */);
 
-static Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
+//static Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
 
 Subscription light_mode_subscription =
   node_hdl.create_subscription<Integer8_1_0>(
     ID_LIGHT_MODE,
     CANARD_DEFAULT_TRANSFER_ID_TIMEOUT_USEC,
-    [&neo_pixel_ctrl](Integer8_1_0 const & msg)
+    [/*&neo_pixel_ctrl*/](Integer8_1_0 const & /*msg*/)
     {
+      /*
       if (msg.value == LIGHT_MODE_RED)
         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 0, 0));
       else if (msg.value == LIGHT_MODE_GREEN)
@@ -114,6 +113,7 @@ Subscription light_mode_subscription =
         neo_pixel_ctrl.clear();
 
       neo_pixel_ctrl.show();
+       */
     });
 
 /* REGISTER ***************************************************************************/
@@ -122,35 +122,12 @@ static CanardNodeID node_id = DEFAULT_AUX_CONTROLLER_NODE_ID;
 
 #if __GNUC__ >= 11
 
-Registry reg(node_hdl, micros);
+Registry node_registry(node_hdl, micros);
 
-const auto reg_rw_cyphal_node_id = reg.expose("cyphal.node.id", node_id);
-const auto reg_ro_cyphal_node_description = reg.route("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER" });
+const auto reg_rw_cyphal_node_id          = node_registry.expose("cyphal.node.id", {}, node_id);
+const auto reg_ro_cyphal_node_description = node_registry.route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
 
 #endif /* __GNUC__ >= 11 */
-
-/* NODE INFO **************************************************************************/
-
-static NodeInfo node_info
-(
-  node_hdl,
-  /* cyphal.node.Version.1.0 protocol_version */
-  1, 0,
-  /* cyphal.node.Version.1.0 hardware_version */
-  1, 0,
-  /* cyphal.node.Version.1.0 software_version */
-  0, 1,
-  /* saturated uint64 software_vcs_revision_id */
-#ifdef CYPHAL_NODE_INFO_GIT_VERSION
-  CYPHAL_NODE_INFO_GIT_VERSION,
-#else
-  0,
-#endif
-  /* saturated uint8[16] unique_id */
-  OpenCyphalUniqueId(),
-  /* saturated uint8[<=50] name */
-  "107-systems.l3xz-aux-ctrl"
-);
 
 /**************************************************************************************
  * SETUP/LOOP
@@ -159,7 +136,29 @@ static NodeInfo node_info
 void setup()
 {
   Serial.begin(115200);
-  //while (!Serial) { }
+  while (!Serial) { }
+
+  /* NODE INFO **************************************************************************/
+
+  static const auto node_info = node_hdl.create_node_info
+  (
+    /* cyphal.node.Version.1.0 protocol_version */
+    1, 0,
+    /* cyphal.node.Version.1.0 hardware_version */
+    1, 0,
+    /* cyphal.node.Version.1.0 software_version */
+    0, 1,
+    /* saturated uint64 software_vcs_revision_id */
+#ifdef CYPHAL_NODE_INFO_GIT_VERSION
+    CYPHAL_NODE_INFO_GIT_VERSION,
+#else
+    0,
+#endif
+    /* saturated uint8[16] unique_id */
+    OpenCyphalUniqueId(),
+    /* saturated uint8[<=50] name */
+    "107-systems.l3xz-aux-ctrl"
+  );
 
   /* Setup LED pins and initialize */
   pinMode(LED_BUILTIN, OUTPUT);
@@ -180,9 +179,11 @@ void setup()
   mcp2515.setNormalMode();
 
   /* Initialize NeoPixel control. */
+  /*
   neo_pixel_ctrl.begin();
   neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
   neo_pixel_ctrl.show();
+   */
 }
 
 void loop()
@@ -209,6 +210,7 @@ void loop()
     Heartbeat_1_0 msg;
 
     msg.uptime = millis() / 1000;
+    Serial.println(msg.uptime);
     msg.health.value = uavcan::node::Health_1_0::NOMINAL;
     msg.mode.value = uavcan::node::Mode_1_0::OPERATIONAL;
     msg.vendor_specific_status_code = 0;
