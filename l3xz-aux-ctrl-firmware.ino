@@ -240,6 +240,8 @@ void setup()
   node_hdl.setNodeId(node_id); /* Update node if a different value has been loaded from the permanent storage. */
 #endif /* __GNUC__ >= 11 */
 
+  (void)filesystem.unmount();
+
   /* NODE INFO **************************************************************************/
   static const auto node_info = node_hdl.create_node_info
   (
@@ -336,16 +338,21 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
 
   if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
   {
+    auto const rc_mount = filesystem.mount();
+    if (rc_mount != littlefs::Error::OK) {
+      DBG_ERROR("Mounting failed again with error code %d", Serial.println(static_cast<int>(err_mount)));
+      rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
+      return rsp;
+    }
 #if __GNUC__ >= 11
     auto const rc_save = cyphal::support::save(kv_storage, *node_registry);
     if (rc_save.has_value())
     {
       DBG_ERROR("cyphal::support::save failed with %d", static_cast<int>(rc_save.value()));
-      rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
-    }
-    else {
       rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
+      return rsp;
     }
+     rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
 #endif /* __GNUC__ >= 11 */
     (void)filesystem.unmount();
     rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
