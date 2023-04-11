@@ -58,7 +58,7 @@ static int const NEOPIXEL_NUM_PIXELS = 8; /* Popular NeoPixel ring size */
 
 static CanardNodeID const DEFAULT_AUX_CONTROLLER_NODE_ID = 20;
 
-static SPISettings  const MCP2515x_SPI_SETTING{1000000, MSBFIRST, SPI_MODE0};
+static SPISettings  const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
 
 static CanardPortID const ID_LIGHT_MODE = 2010U;
 
