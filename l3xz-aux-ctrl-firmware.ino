@@ -22,7 +22,6 @@
 #include <107-Arduino-MCP2515.h>
 #include <107-Arduino-littlefs.h>
 #include <107-Arduino-24LCxx.hpp>
-#include <107-Arduino-CriticalSection.h>
 
 #define DBG_ENABLE_ERROR
 #define DBG_ENABLE_WARNING
@@ -85,13 +84,11 @@ DEBUG_INSTANCE(80, Serial);
 
 ArduinoMCP2515 mcp2515([]()
                        {
-                         SPI.beginTransaction(MCP2515x_SPI_SETTING);
                          digitalWrite(MCP2515_CS_PIN, LOW);
                        },
                        []()
                        {
                          digitalWrite(MCP2515_CS_PIN, HIGH);
-                         SPI.endTransaction();
                        },
                        [](uint8_t const d) { return SPI.transfer(d); },
                        micros,
@@ -220,13 +217,13 @@ void setup()
   // reformat if we can't mount the filesystem
   // this should only happen on the first boot
   if (err_mount != littlefs::Error::OK) {
-    DBG_ERROR("Mounting failed with error code %d", Serial.println(static_cast<int>(err_mount)));
+    DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount));
     (void)filesystem.format();
   }
 
   err_mount = filesystem.mount();
   if (err_mount != littlefs::Error::OK) {
-    DBG_ERROR("Mounting failed again with error code %d", Serial.println(static_cast<int>(err_mount)));
+    DBG_ERROR("Mounting failed again with error code %d", static_cast<int>(err_mount));
     return;
   }
 
@@ -269,12 +266,10 @@ void setup()
 
   /* Setup SPI access */
   SPI.begin();
+  SPI.beginTransaction(MCP2515x_SPI_SETTING);
+  pinMode(MCP2515_INT_PIN, INPUT_PULLUP);
   pinMode(MCP2515_CS_PIN, OUTPUT);
   digitalWrite(MCP2515_CS_PIN, HIGH);
-
-  /* Attach interrupt handler to register MCP2515 signaled by taking INT low */
-  pinMode(MCP2515_INT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(MCP2515_INT_PIN), []() { mcp2515.onExternalEventHandler(); }, LOW);
 
   /* Initialize MCP2515 */
   mcp2515.begin();
@@ -291,12 +286,10 @@ void setup()
 
 void loop()
 {
-  /* Process all pending OpenCyphal actions.
-   */
-  {
-    CriticalSection crit_sec;
-    node_hdl.spinSome();
-  }
+  while(digitalRead(MCP2515_INT_PIN) == LOW)
+    mcp2515.onExternalEventHandler();
+
+  node_hdl.spinSome();
 
   /* Publish all the gathered data, although at various
    * different intervals.
@@ -340,7 +333,7 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
   {
     auto const rc_mount = filesystem.mount();
     if (rc_mount != littlefs::Error::OK) {
-      DBG_ERROR("Mounting failed again with error code %d", Serial.println(static_cast<int>(err_mount)));
+      DBG_ERROR("Mounting failed again with error code %d", static_cast<int>(rc_mount));
       rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
       return rsp;
     }
