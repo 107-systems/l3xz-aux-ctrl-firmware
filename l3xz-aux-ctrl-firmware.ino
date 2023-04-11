@@ -82,14 +82,8 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
 
 DEBUG_INSTANCE(80, Serial);
 
-ArduinoMCP2515 mcp2515([]()
-                       {
-                         digitalWrite(MCP2515_CS_PIN, LOW);
-                       },
-                       []()
-                       {
-                         digitalWrite(MCP2515_CS_PIN, HIGH);
-                       },
+ArduinoMCP2515 mcp2515([]() { digitalWrite(MCP2515_CS_PIN, LOW); },
+                       []() { digitalWrite(MCP2515_CS_PIN, HIGH); },
                        [](uint8_t const d) { return SPI.transfer(d); },
                        micros,
                        onReceiveBufferFull,
