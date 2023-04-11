@@ -334,53 +334,23 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
 {
   ExecuteCommand::Response_1_1 rsp;
 
-#if __GNUC__ >= 11
-  auto save_regs_to_eeprom = []()
+  if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
   {
+#if __GNUC__ >= 11
     auto const rc_save = cyphal::support::save(kv_storage, *node_registry);
     if (rc_save.has_value())
+    {
       DBG_ERROR("cyphal::support::save failed with %d", static_cast<int>(rc_save.value()));
-  };
-#endif /* __GNUC__ >= 11 */
-
-  if (req.command == ExecuteCommand::Request_1_1::COMMAND_RESTART)
-  {
-#if __GNUC__ >= 11
-    save_regs_to_eeprom();
+      rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
+    }
+    else {
+      rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
+    }
 #endif /* __GNUC__ >= 11 */
     (void)filesystem.unmount();
     rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
   }
-  else if (req.command == ExecuteCommand::Request_1_1::COMMAND_POWER_OFF)
-  {
-#if __GNUC__ >= 11
-    save_regs_to_eeprom();
-#endif /* __GNUC__ >= 11 */
-    (void)filesystem.unmount();
-    rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
-  }
-  else if (req.command == ExecuteCommand::Request_1_1::COMMAND_BEGIN_SOFTWARE_UPDATE)
-  {
-    rsp.status = ExecuteCommand::Response_1_1::STATUS_BAD_COMMAND;
-  }
-  else if (req.command == ExecuteCommand::Request_1_1::COMMAND_FACTORY_RESET)
-  {
-    rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
-  }
-  else if (req.command == ExecuteCommand::Request_1_1::COMMAND_EMERGENCY_STOP)
-  {
-    rsp.status = ExecuteCommand::Response_1_1::STATUS_BAD_COMMAND;
-  }
-  else if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
-  {
-#if __GNUC__ >= 11
-    save_regs_to_eeprom();
-#endif /* __GNUC__ >= 11 */
-    (void)filesystem.unmount();
-    rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
-  }
-  else
-  {
+  else {
     rsp.status = ExecuteCommand::Response_1_1::STATUS_BAD_COMMAND;
   }
 
