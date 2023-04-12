@@ -203,19 +203,13 @@ void setup()
   }
   Serial.println(eeprom);
 
-  // mount the filesystem
-  auto err_mount = filesystem.mount();
-
-  // reformat if we can't mount the filesystem
-  // this should only happen on the first boot
-  if (err_mount != littlefs::Error::OK) {
-    DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount));
+  if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+    DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount.value()));
     (void)filesystem.format();
   }
 
-  err_mount = filesystem.mount();
-  if (err_mount != littlefs::Error::OK) {
-    DBG_ERROR("Mounting failed again with error code %d", static_cast<int>(err_mount));
+  if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+    DBG_ERROR("Mounting failed again with error code %d", static_cast<int>(err_mount.value()));
     return;
   }
 
@@ -323,9 +317,8 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
 
   if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
   {
-    auto const rc_mount = filesystem.mount();
-    if (rc_mount != littlefs::Error::OK) {
-      DBG_ERROR("Mounting failed again with error code %d", static_cast<int>(rc_mount));
+    if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+      DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount.value()));
       rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
       return rsp;
     }
