@@ -139,7 +139,7 @@ lfs_config cfg;
 littlefs::Filesystem filesystem(cfg);
 
 #if __GNUC__ >= 11
-cyphal::support::platform::storage::KeyValueStorage_littlefs kv_storage(filesystem);
+cyphal::support::platform::storage::littlefs::KeyValueStorage kv_storage(filesystem);
 #endif /* __GNUC__ >= 11 */
 
 /* REGISTER ***************************************************************************/
