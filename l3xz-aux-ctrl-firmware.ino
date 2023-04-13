@@ -16,11 +16,19 @@
 #include <Wire.h>
 #include <Servo.h>
 
-#include <I2C_eeprom.h>
 #include <107-Arduino-Cyphal.h>
+#include <107-Arduino-Cyphal-Support.h>
+
 #include <107-Arduino-MCP2515.h>
-#include <107-Arduino-UniqueId.h>
-#include <107-Arduino-CriticalSection.h>
+#include <107-Arduino-littlefs.h>
+#include <107-Arduino-24LCxx.hpp>
+
+#define DBG_ENABLE_ERROR
+#define DBG_ENABLE_WARNING
+#define DBG_ENABLE_INFO
+#define DBG_ENABLE_DEBUG
+#define DBG_ENABLE_VERBOSE
+#include <107-Arduino-Debug.hpp>
 
 #undef max
 #undef min
@@ -40,6 +48,8 @@ using namespace uavcan::primitive::scalar;
  * CONSTANTS
  **************************************************************************************/
 
+static uint8_t const EEPROM_I2C_DEV_ADDR = 0x50;
+
 static int const NEOPIXEL_PIN    = 13;
 static int const MCP2515_CS_PIN  = 17;
 static int const MCP2515_INT_PIN = 20;
@@ -48,7 +58,7 @@ static int const NEOPIXEL_NUM_PIXELS = 8; /* Popular NeoPixel ring size */
 
 static CanardNodeID const DEFAULT_AUX_CONTROLLER_NODE_ID = 20;
 
-static SPISettings  const MCP2515x_SPI_SETTING{1000000, MSBFIRST, SPI_MODE0};
+static SPISettings  const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
 
 static CanardPortID const ID_LIGHT_MODE = 2010U;
 
@@ -64,21 +74,16 @@ static int8_t const LIGHT_MODE_AMBER = 5;
 
 void onReceiveBufferFull(CanardFrame const & frame);
 void onLightMode_Received(Integer8_1_0 const & msg);
+ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteCommand::Request_1_1 const &);
 
 /**************************************************************************************
  * GLOBAL VARIABLES
  **************************************************************************************/
 
-ArduinoMCP2515 mcp2515([]()
-                       {
-                         SPI.beginTransaction(MCP2515x_SPI_SETTING);
-                         digitalWrite(MCP2515_CS_PIN, LOW);
-                       },
-                       []()
-                       {
-                         digitalWrite(MCP2515_CS_PIN, HIGH);
-                         SPI.endTransaction();
-                       },
+DEBUG_INSTANCE(80, Serial);
+
+ArduinoMCP2515 mcp2515([]() { digitalWrite(MCP2515_CS_PIN, LOW); },
+                       []() { digitalWrite(MCP2515_CS_PIN, HIGH); },
                        [](uint8_t const d) { return SPI.transfer(d); },
                        micros,
                        onReceiveBufferFull,
@@ -87,15 +92,13 @@ ArduinoMCP2515 mcp2515([]()
 Node::Heap<Node::DEFAULT_O1HEAP_SIZE> node_heap;
 Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const & frame) { return mcp2515.transmit(frame); }, DEFAULT_AUX_CONTROLLER_NODE_ID);
 
-Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>
-  (Heartbeat_1_0::_traits_::FixedPortId, 1*1000*1000UL /* = 1 sec in usecs. */);
+Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
 
 //static Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
 
 Subscription light_mode_subscription =
   node_hdl.create_subscription<Integer8_1_0>(
     ID_LIGHT_MODE,
-    CANARD_DEFAULT_TRANSFER_ID_TIMEOUT_USEC,
     [/*&neo_pixel_ctrl*/](Integer8_1_0 const & /*msg*/)
     {
       /*
@@ -116,6 +119,58 @@ Subscription light_mode_subscription =
        */
     });
 
+ServiceServer execute_command_srv = node_hdl.create_service_server<ExecuteCommand::Request_1_1, ExecuteCommand::Response_1_1>(
+  ExecuteCommand::Request_1_1::_traits_::FixedPortId,
+  2*1000*1000UL,
+  onExecuteCommand_1_1_Request_Received);
+
+/* LITTLEFS/EEPROM ********************************************************************/
+
+static EEPROM_24LCxx eeprom(EEPROM_24LCxx_Type::LC64,
+                            EEPROM_I2C_DEV_ADDR,
+                            [](size_t const dev_addr) { Wire.beginTransmission(dev_addr); },
+                            [](uint8_t const data) { Wire.write(data); },
+                            []() { return Wire.endTransmission(); },
+                            [](uint8_t const dev_addr, size_t const len) -> size_t { return Wire.requestFrom(dev_addr, len); },
+                            []() { return Wire.available(); },
+                            []() { return Wire.read(); });
+
+static littlefs::FilesystemConfig filesystem_config
+  (
+    +[](const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void *buffer, lfs_size_t size) -> int
+    {
+      eeprom.read_page((block * c->block_size) + off, (uint8_t *)buffer, size);
+      return LFS_ERR_OK;
+    },
+    +[](const struct lfs_config *c, lfs_block_t block, lfs_off_t off, const void *buffer, lfs_size_t size) -> int
+    {
+      eeprom.write_page((block * c->block_size) + off, (uint8_t const *)buffer, size);
+      return LFS_ERR_OK;
+    },
+    +[](const struct lfs_config *c, lfs_block_t block) -> int
+    {
+      for(size_t off = 0; off < c->block_size; off += eeprom.page_size())
+        eeprom.fill_page((block * c->block_size) + off, 0xFF);
+      return LFS_ERR_OK;
+    },
+    +[](const struct lfs_config *c) -> int
+    {
+      return LFS_ERR_OK;
+    },
+    eeprom.page_size(),
+    eeprom.page_size(),
+    (eeprom.page_size() * 4), /* littlefs demands (erase) block size to exceed read/prog size. */
+    eeprom.device_size() / (eeprom.page_size() * 4),
+    500,
+    eeprom.page_size(),
+    eeprom.page_size()
+  );
+static littlefs::Filesystem filesystem(filesystem_config);
+
+#if __GNUC__ >= 11
+cyphal::support::platform::storage::littlefs::KeyValueStorage kv_storage(filesystem);
+#endif /* __GNUC__ >= 11 */
+
 /* REGISTER ***************************************************************************/
 
 static CanardNodeID node_id = DEFAULT_AUX_CONTROLLER_NODE_ID;
@@ -124,7 +179,7 @@ static CanardNodeID node_id = DEFAULT_AUX_CONTROLLER_NODE_ID;
 
 const auto node_registry = node_hdl.create_registry();
 
-const auto reg_rw_cyphal_node_id          = node_registry->expose("cyphal.node.id", {}, node_id);
+const auto reg_rw_cyphal_node_id          = node_registry->expose("cyphal.node.id", {true}, node_id);
 const auto reg_ro_cyphal_node_description = node_registry->route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
 
 #endif /* __GNUC__ >= 11 */
@@ -137,6 +192,38 @@ void setup()
 {
   Serial.begin(115200);
   while (!Serial) { }
+  delay(1000);
+
+  /* LITTLEFS/EEPROM ********************************************************************/
+  Wire.begin();
+
+  if (!eeprom.isConnected()) {
+    DBG_ERROR("Connecting to EEPROM failed.");
+    return;
+  }
+  Serial.println(eeprom);
+
+  if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+    DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount.value()));
+    (void)filesystem.format();
+  }
+
+  if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+    DBG_ERROR("Mounting failed again with error code %d", static_cast<int>(err_mount.value()));
+    return;
+  }
+
+#if __GNUC__ >= 11
+  DBG_INFO("cyphal::support::load ... ");
+  auto const rc_load = cyphal::support::load(kv_storage, *node_registry);
+  if (rc_load.has_value()) {
+    DBG_ERROR("cyphal::support::load failed with %d", static_cast<int>(rc_load.value()));
+    return;
+  }
+  node_hdl.setNodeId(node_id); /* Update node if a different value has been loaded from the permanent storage. */
+#endif /* __GNUC__ >= 11 */
+
+  (void)filesystem.unmount();
 
   /* NODE INFO **************************************************************************/
   static const auto node_info = node_hdl.create_node_info
@@ -154,7 +241,7 @@ void setup()
     0,
 #endif
     /* saturated uint8[16] unique_id */
-    OpenCyphalUniqueId(),
+    cyphal::support::UniqueId::instance().value(),
     /* saturated uint8[<=50] name */
     "107-systems.l3xz-aux-ctrl"
   );
@@ -165,12 +252,10 @@ void setup()
 
   /* Setup SPI access */
   SPI.begin();
+  SPI.beginTransaction(MCP2515x_SPI_SETTING);
+  pinMode(MCP2515_INT_PIN, INPUT_PULLUP);
   pinMode(MCP2515_CS_PIN, OUTPUT);
   digitalWrite(MCP2515_CS_PIN, HIGH);
-
-  /* Attach interrupt handler to register MCP2515 signaled by taking INT low */
-  pinMode(MCP2515_INT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(MCP2515_INT_PIN), []() { mcp2515.onExternalEventHandler(); }, LOW);
 
   /* Initialize MCP2515 */
   mcp2515.begin();
@@ -187,12 +272,10 @@ void setup()
 
 void loop()
 {
-  /* Process all pending OpenCyphal actions.
-   */
-  {
-    CriticalSection crit_sec;
-    node_hdl.spinSome();
-  }
+  while(digitalRead(MCP2515_INT_PIN) == LOW)
+    mcp2515.onExternalEventHandler();
+
+  node_hdl.spinSome();
 
   /* Publish all the gathered data, although at various
    * different intervals.
@@ -209,12 +292,13 @@ void loop()
     Heartbeat_1_0 msg;
 
     msg.uptime = millis() / 1000;
-    Serial.println(msg.uptime);
     msg.health.value = uavcan::node::Health_1_0::NOMINAL;
     msg.mode.value = uavcan::node::Mode_1_0::OPERATIONAL;
     msg.vendor_specific_status_code = 0;
 
     heartbeat_pub->publish(msg);
+
+    DBG_INFO("%d", msg.uptime);
   }
 }
 
@@ -225,4 +309,35 @@ void loop()
 void onReceiveBufferFull(CanardFrame const & frame)
 {
   node_hdl.onCanFrameReceived(frame);
+}
+
+ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteCommand::Request_1_1 const & req)
+{
+  ExecuteCommand::Response_1_1 rsp;
+
+  if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
+  {
+    if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+      DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount.value()));
+      rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
+      return rsp;
+    }
+#if __GNUC__ >= 11
+    auto const rc_save = cyphal::support::save(kv_storage, *node_registry);
+    if (rc_save.has_value())
+    {
+      DBG_ERROR("cyphal::support::save failed with %d", static_cast<int>(rc_save.value()));
+      rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
+      return rsp;
+    }
+     rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
+#endif /* __GNUC__ >= 11 */
+    (void)filesystem.unmount();
+    rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
+  }
+  else {
+    rsp.status = ExecuteCommand::Response_1_1::STATUS_BAD_COMMAND;
+  }
+
+  return rsp;
 }
