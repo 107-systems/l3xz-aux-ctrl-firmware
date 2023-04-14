@@ -54,6 +54,9 @@ static int const NEOPIXEL_PIN    = 13;
 static int const MCP2515_CS_PIN  = 17;
 static int const MCP2515_INT_PIN = 20;
 
+static int const LED2_PIN = D27; /* GP21 */
+static int const LED3_PIN = D29; /* GP22 */
+
 static int const NEOPIXEL_NUM_PIXELS = 8; /* Popular NeoPixel ring size */
 
 static CanardNodeID const DEFAULT_AUX_CONTROLLER_NODE_ID = 20;
@@ -247,7 +250,11 @@ void setup()
   );
 
   /* Setup LED pins and initialize */
+  pinMode(LED2_PIN, OUTPUT);
+  pinMode(LED3_PIN, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED2_PIN, LOW);
+  digitalWrite(LED3_PIN, LOW);
   digitalWrite(LED_BUILTIN, LOW);
 
   /* Setup SPI access */
@@ -298,7 +305,8 @@ void loop()
 
     heartbeat_pub->publish(msg);
 
-    DBG_INFO("%d", msg.uptime);
+    digitalWrite(LED2_PIN, !digitalRead(LED2_PIN));
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
 }
 
@@ -308,6 +316,7 @@ void loop()
 
 void onReceiveBufferFull(CanardFrame const & frame)
 {
+  digitalWrite(LED3_PIN, !digitalRead(LED3_PIN));
   node_hdl.onCanFrameReceived(frame);
 }
 
@@ -315,9 +324,20 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
 {
   ExecuteCommand::Response_1_1 rsp;
 
-  if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
+  if (req.command == ExecuteCommand::Request_1_1::COMMAND_RESTART)
   {
-    if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+    if (auto const opt_err = cyphal::support::platform::reset_async(std::chrono::milliseconds(1000)); opt_err.has_value())
+    {
+      DBG_ERROR("reset_async failed with error code %d", static_cast<int>(opt_err.value()));
+      rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
+      return rsp;
+    }
+    rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
+  }
+  else if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
+  {
+    if (auto const err_mount = filesystem.mount(); err_mount.has_value())
+    {
       DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount.value()));
       rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
       return rsp;
