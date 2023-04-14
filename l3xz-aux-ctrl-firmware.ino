@@ -324,9 +324,20 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
 {
   ExecuteCommand::Response_1_1 rsp;
 
-  if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
+  if (req.command == ExecuteCommand::Request_1_1::COMMAND_RESTART)
   {
-    if (auto const err_mount = filesystem.mount(); err_mount.has_value()) {
+    if (auto const opt_err = cyphal::support::platform::reset_async(std::chrono::milliseconds(1000)); opt_err.has_value())
+    {
+      DBG_ERROR("reset_async failed with error code %d", static_cast<int>(opt_err.value()));
+      rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
+      return rsp;
+    }
+    rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
+  }
+  else if (req.command == ExecuteCommand::Request_1_1::COMMAND_STORE_PERSISTENT_STATES)
+  {
+    if (auto const err_mount = filesystem.mount(); err_mount.has_value())
+    {
       DBG_ERROR("Mounting failed with error code %d", static_cast<int>(err_mount.value()));
       rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
       return rsp;
