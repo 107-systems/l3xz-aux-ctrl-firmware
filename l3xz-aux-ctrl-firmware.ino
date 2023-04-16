@@ -59,7 +59,7 @@ static int const LED3_PIN = D29; /* GP22 */
 
 static int const NEOPIXEL_NUM_PIXELS = 8; /* Popular NeoPixel ring size */
 
-static CanardNodeID const DEFAULT_AUX_CONTROLLER_NODE_ID = 20;
+static CanardNodeID const DEFAULT_AUX_CONTROLLER_NODE_ID = 65535;
 
 static SPISettings  const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
 
