@@ -59,8 +59,6 @@ static int const LED3_PIN = D29; /* GP22 */
 
 static int const NEOPIXEL_NUM_PIXELS = 8; /* Popular NeoPixel ring size */
 
-static CanardNodeID const DEFAULT_AUX_CONTROLLER_NODE_ID = 20;
-
 static SPISettings  const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
 
 static CanardPortID const ID_LIGHT_MODE = 2010U;
@@ -93,7 +91,7 @@ ArduinoMCP2515 mcp2515([]() { digitalWrite(MCP2515_CS_PIN, LOW); },
                        nullptr);
 
 Node::Heap<Node::DEFAULT_O1HEAP_SIZE> node_heap;
-Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const & frame) { return mcp2515.transmit(frame); }, DEFAULT_AUX_CONTROLLER_NODE_ID);
+Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const & frame) { return mcp2515.transmit(frame); });
 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
 
@@ -176,7 +174,7 @@ cyphal::support::platform::storage::littlefs::KeyValueStorage kv_storage(filesys
 
 /* REGISTER ***************************************************************************/
 
-static CanardNodeID node_id = DEFAULT_AUX_CONTROLLER_NODE_ID;
+static uint16_t node_id = std::numeric_limits<uint16_t>::max();
 
 #if __GNUC__ >= 11
 
@@ -223,10 +221,16 @@ void setup()
     DBG_ERROR("cyphal::support::load failed with %d", static_cast<int>(rc_load.value()));
     return;
   }
-  node_hdl.setNodeId(node_id); /* Update node if a different value has been loaded from the permanent storage. */
 #endif /* __GNUC__ >= 11 */
 
   (void)filesystem.unmount();
+
+  /* If the node ID contained in the register points to an undefined
+   * node ID, assign node ID 0 to this node.
+   */
+  if (node_id > CANARD_NODE_ID_MAX)
+    node_id = 0;
+  node_hdl.setNodeId(static_cast<CanardNodeID>(node_id));
 
   /* NODE INFO **************************************************************************/
   static const auto node_info = node_hdl.create_node_info
