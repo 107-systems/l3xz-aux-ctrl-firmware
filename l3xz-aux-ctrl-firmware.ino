@@ -53,13 +53,14 @@ static uint8_t const EEPROM_I2C_DEV_ADDR = 0x50;
 static int const NEOPIXEL_PIN    = 13;
 static int const MCP2515_CS_PIN  = 17;
 static int const MCP2515_INT_PIN = 20;
-
-static int const LED2_PIN = D27; /* GP21 */
-static int const LED3_PIN = D29; /* GP22 */
+static int const LED2_PIN        = D27; /* GP21 */
+static int const LED3_PIN        = D29; /* GP22 */
 
 static int const NEOPIXEL_NUM_PIXELS = 8; /* Popular NeoPixel ring size */
 
-static SPISettings  const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
+static SPISettings const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
+
+static uint16_t const UPDATE_PERIOD_HEARTBEAT_ms = 1000;
 
 static CanardPortID const ID_LIGHT_MODE = 2010U;
 
@@ -296,7 +297,7 @@ void loop()
   unsigned long const now = millis();
 
   /* Publish the heartbeat once/second */
-  if(now - prev_heartbeat > 1000)
+  if(now - prev_heartbeat > UPDATE_PERIOD_HEARTBEAT_ms)
   {
     prev_heartbeat = now;
 
