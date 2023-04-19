@@ -60,6 +60,7 @@ static int const NEOPIXEL_NUM_PIXELS = 12; /* Number of NeoPixels on RGB ring. *
 
 static SPISettings const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
 
+static uint16_t const UPDATE_PERIOD_BLINK_ms     = 1000;
 static uint16_t const UPDATE_PERIOD_HEARTBEAT_ms = 1000;
 
 static CanardPortID const ID_LIGHT_MODE = 2010U;
@@ -75,7 +76,6 @@ static int8_t const LIGHT_MODE_AMBER = 5;
  **************************************************************************************/
 
 void onReceiveBufferFull(CanardFrame const & frame);
-void onLightMode_Received(Integer8_1_0 const & msg);
 ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteCommand::Request_1_1 const &);
 
 /**************************************************************************************
@@ -97,6 +97,8 @@ Node::Heap<Node::DEFAULT_O1HEAP_SIZE> node_heap;
 Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const & frame) { return mcp2515.transmit(frame); });
 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
+
+Integer8_1_0 light_mode_msg{LIGHT_MODE_WHITE};
 Subscription light_mode_subscription;
 
 ServiceServer execute_command_srv = node_hdl.create_service_server<ExecuteCommand::Request_1_1, ExecuteCommand::Response_1_1>(
@@ -214,25 +216,7 @@ void setup()
     node_id = 0;
   node_hdl.setNodeId(static_cast<CanardNodeID>(node_id));
 
-  light_mode_subscription = node_hdl.create_subscription<Integer8_1_0>
-    (port_id_light_mode,
-     [](Integer8_1_0 const & msg)
-     {
-       if (msg.value == LIGHT_MODE_RED)
-         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 0, 0));
-       else if (msg.value == LIGHT_MODE_GREEN)
-         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 55, 0));
-       else if (msg.value == LIGHT_MODE_BLUE)
-         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 0, 55));
-       else if (msg.value == LIGHT_MODE_WHITE)
-         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
-       else if (msg.value == LIGHT_MODE_AMBER)
-         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 40, 0));
-       else
-         neo_pixel_ctrl.clear();
-
-       neo_pixel_ctrl.show();
-     });
+  light_mode_subscription = node_hdl.create_subscription<Integer8_1_0>(port_id_light_mode, [](Integer8_1_0 const & msg) { light_mode_msg = msg; });
 
   /* NODE INFO **************************************************************************/
   static const auto node_info = node_hdl.create_node_info
@@ -294,6 +278,7 @@ void loop()
    * different intervals.
    */
   static unsigned long prev_heartbeat = 0;
+  static unsigned long prev_blink;
 
   unsigned long const now = millis();
 
@@ -313,6 +298,38 @@ void loop()
 
     digitalWrite(LED2_PIN, !digitalRead(LED2_PIN));
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+  }
+
+  /* Implement the RGB light on/off blinking. */
+  if(now - prev_blink > UPDATE_PERIOD_BLINK_ms)
+  {
+    prev_blink = now;
+
+    auto const turnOn = [](int8_t const light_mode)
+    {
+      if (light_mode_msg.value == LIGHT_MODE_RED)
+        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 0, 0));
+      else if (light_mode_msg.value == LIGHT_MODE_GREEN)
+        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 55, 0));
+      else if (light_mode_msg.value == LIGHT_MODE_BLUE)
+        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 0, 55));
+      else if (light_mode_msg.value == LIGHT_MODE_WHITE)
+        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
+      else if (light_mode_msg.value == LIGHT_MODE_AMBER)
+        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 40, 0));
+      else
+        neo_pixel_ctrl.clear();
+      neo_pixel_ctrl.show();
+    };
+    auto const turnOff = []()
+    {
+      neo_pixel_ctrl.clear();
+      neo_pixel_ctrl.show();
+    };
+
+    static bool isTurnedOn = false;
+    isTurnedOn ? turnOff() : turnOn(light_mode_msg.value);
+    isTurnedOn = !isTurnedOn;
   }
 }
 
