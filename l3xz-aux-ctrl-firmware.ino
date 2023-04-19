@@ -176,7 +176,7 @@ const auto reg_ro_cyphal_sub_light_mode_type = node_registry->route ("cyphal.sub
 void setup()
 {
   Serial.begin(115200);
-  while (!Serial) { }
+  // while (!Serial) { } /* Only for debug. */
   delay(1000);
 
   /* LITTLEFS/EEPROM ********************************************************************/
