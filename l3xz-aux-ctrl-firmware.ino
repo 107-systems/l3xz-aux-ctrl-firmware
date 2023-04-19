@@ -37,8 +37,6 @@
  **************************************************************************************/
 
 using namespace uavcan::node;
-using namespace uavcan::_register;
-using namespace uavcan::primitive::scalar;
 
 /**************************************************************************************
  * CONSTANTS
@@ -98,7 +96,7 @@ Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
 Publisher<uavcan::primitive::scalar::Bit_1_0> estop_pub;
 
-Integer8_1_0 light_mode_msg{LIGHT_MODE_WHITE};
+uavcan::primitive::scalar::Integer8_1_0 light_mode_msg{LIGHT_MODE_WHITE};
 Subscription light_mode_subscription;
 
 ServiceServer execute_command_srv = node_hdl.create_service_server<ExecuteCommand::Request_1_1, ExecuteCommand::Response_1_1>(
@@ -220,7 +218,7 @@ void setup()
   node_hdl.setNodeId(static_cast<CanardNodeID>(node_id));
 
   if (port_id_light_mode != std::numeric_limits<CanardPortID>::max())
-    light_mode_subscription = node_hdl.create_subscription<Integer8_1_0>(port_id_light_mode, [](Integer8_1_0 const & msg) { light_mode_msg = msg; });
+    light_mode_subscription = node_hdl.create_subscription<uavcan::primitive::scalar::Integer8_1_0>(port_id_light_mode, [](uavcan::primitive::scalar::Integer8_1_0 const & msg) { light_mode_msg = msg; });
   if (port_id_estop != std::numeric_limits<CanardPortID>::max())
     estop_pub = node_hdl.create_publisher<uavcan::primitive::scalar::Bit_1_0>(port_id_estop, 1*1000*1000UL /* = 1 sec in usecs. */);
 
