@@ -277,6 +277,8 @@ void setup()
   neo_pixel_ctrl.begin();
   neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
   neo_pixel_ctrl.show();
+
+  DBG_INFO("Init complete.");
 }
 
 void loop()
