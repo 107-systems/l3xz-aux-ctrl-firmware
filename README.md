@@ -34,7 +34,11 @@ python3 -m pip install yakut
 yakut compile https://github.com/OpenCyphal/public_regulated_data_types/archive/refs/heads/master.zip
 . setup_yakut.sh
 ```
-Set RGB led colour via `yakut` (`cyphal.sub.light_mode.id` = `2001`, `1` = RED):
+Obtain status of ESTOP via `yakut` (`cyphal.pub.estop.id` = `2001`):
 ```bash
-y pub -N1 2001:uavcan.primitive.scalar.Integer8.1.0 1
+y sub 2001:uavcan.primitive.scalar.Bit.1.0 --with-metadata
+```
+Set RGB led colour via `yakut` (`cyphal.sub.light_mode.id` = `2002`, `1` = RED):
+```bash
+y pub -N1 2002:uavcan.primitive.scalar.Integer8.1.0 1
 ```

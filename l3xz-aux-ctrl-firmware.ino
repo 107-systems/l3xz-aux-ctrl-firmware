@@ -27,12 +27,8 @@
 #define DBG_ENABLE_WARNING
 #define DBG_ENABLE_INFO
 #define DBG_ENABLE_DEBUG
-#define DBG_ENABLE_VERBOSE
+//#define DBG_ENABLE_VERBOSE
 #include <107-Arduino-Debug.hpp>
-
-#undef max
-#undef min
-#include <algorithm>
 
 #include <Adafruit_NeoPixel.h>
 
@@ -50,17 +46,20 @@ using namespace uavcan::primitive::scalar;
 
 static uint8_t const EEPROM_I2C_DEV_ADDR = 0x50;
 
-static int const NEOPIXEL_PIN    = 13;
-static int const MCP2515_CS_PIN  = 17;
-static int const MCP2515_INT_PIN = 20;
-static int const LED2_PIN        = 21; /* GP21 */
-static int const LED3_PIN        = 22; /* GP22 */
+static int const NEOPIXEL_PIN     = 13;
+static int const MCP2515_CS_PIN   = 17;
+static int const MCP2515_INT_PIN  = 20;
+static int const LED2_PIN         = 21; /* GP21 */
+static int const LED3_PIN         = 22; /* GP22 */
+static int const EMERGENCY_NO_PIN =  6; /* INPUT0 */
+static int const EMERGENCY_NC_PIN =  7; /* INPUT0 */
 
 static int const NEOPIXEL_NUM_PIXELS = 12; /* Number of NeoPixels on RGB ring. */
 
 static SPISettings const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
 
 static uint16_t const UPDATE_PERIOD_BLINK_ms     = 1000;
+static uint16_t const UPDATE_PERIOD_ESTOP_ms     = 50;
 static uint16_t const UPDATE_PERIOD_HEARTBEAT_ms = 1000;
 
 static CanardPortID const ID_LIGHT_MODE = 2010U;
@@ -97,6 +96,7 @@ Node::Heap<Node::DEFAULT_O1HEAP_SIZE> node_heap;
 Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const & frame) { return mcp2515.transmit(frame); });
 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
+Publisher<uavcan::primitive::scalar::Bit_1_0> estop_pub;
 
 Integer8_1_0 light_mode_msg{LIGHT_MODE_WHITE};
 Subscription light_mode_subscription;
@@ -157,6 +157,7 @@ cyphal::support::platform::storage::littlefs::KeyValueStorage kv_storage(filesys
 
 static uint16_t     node_id            = std::numeric_limits<uint16_t>::max();
 static CanardPortID port_id_light_mode = std::numeric_limits<CanardPortID>::max();
+static CanardPortID port_id_estop      = std::numeric_limits<CanardPortID>::max();
 
 #if __GNUC__ >= 11
 
@@ -166,6 +167,8 @@ const auto reg_rw_cyphal_node_id             = node_registry->expose("cyphal.nod
 const auto reg_ro_cyphal_node_description    = node_registry->route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
 const auto reg_rw_cyphal_sub_light_mode_id   = node_registry->expose("cyphal.sub.light_mode.id", {true}, port_id_light_mode);
 const auto reg_ro_cyphal_sub_light_mode_type = node_registry->route ("cyphal.sub.light_mode.type", {true}, []() { return "uavcan.primitive.scalar.Integer8.1.0"; });
+const auto reg_rw_cyphal_pub_estop_id        = node_registry->expose("cyphal.pub.estop.id", {true}, port_id_estop);
+const auto reg_ro_cyphal_pub_estop_type      = node_registry->route ("cyphal.pub.estop.type", {true}, []() { return "uavcan.primitive.scalar.Bit.1.0"; });
 
 #endif /* __GNUC__ >= 11 */
 
@@ -216,7 +219,13 @@ void setup()
     node_id = 0;
   node_hdl.setNodeId(static_cast<CanardNodeID>(node_id));
 
-  light_mode_subscription = node_hdl.create_subscription<Integer8_1_0>(port_id_light_mode, [](Integer8_1_0 const & msg) { light_mode_msg = msg; });
+  if (port_id_light_mode != std::numeric_limits<CanardPortID>::max())
+    light_mode_subscription = node_hdl.create_subscription<Integer8_1_0>(port_id_light_mode, [](Integer8_1_0 const & msg) { light_mode_msg = msg; });
+  if (port_id_estop != std::numeric_limits<CanardPortID>::max())
+    estop_pub = node_hdl.create_publisher<uavcan::primitive::scalar::Bit_1_0>(port_id_estop, 1*1000*1000UL /* = 1 sec in usecs. */);
+
+  DBG_INFO("Node ID: %d\n\r\tLIGHT ID = %d\n\r\tESTOP ID = %d",
+           node_id, port_id_light_mode, port_id_estop);
 
   /* NODE INFO **************************************************************************/
   static const auto node_info = node_hdl.create_node_info
@@ -246,6 +255,10 @@ void setup()
   digitalWrite(LED2_PIN, LOW);
   digitalWrite(LED3_PIN, LOW);
   digitalWrite(LED_BUILTIN, LOW);
+
+  /* Setup emergency button pins. */
+  pinMode(EMERGENCY_NO_PIN, INPUT_PULLUP);
+  pinMode(EMERGENCY_NC_PIN, INPUT_PULLUP);
 
   /* Setup SPI access */
   SPI.begin();
@@ -277,8 +290,9 @@ void loop()
   /* Publish all the gathered data, although at various
    * different intervals.
    */
+  static unsigned long prev_blink = 0;
+  static unsigned long prev_estop = 0;
   static unsigned long prev_heartbeat = 0;
-  static unsigned long prev_blink;
 
   unsigned long const now = millis();
 
@@ -298,6 +312,25 @@ void loop()
 
     digitalWrite(LED2_PIN, !digitalRead(LED2_PIN));
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+  }
+
+  /* Publish the state of the emergency stop button. */
+  if(now - prev_estop > UPDATE_PERIOD_ESTOP_ms)
+  {
+    prev_estop = now;
+
+    bool const is_estop_no = digitalRead(EMERGENCY_NO_PIN) == LOW;
+    bool const is_estop_nc = digitalRead(EMERGENCY_NC_PIN) == HIGH;
+
+    DBG_VERBOSE("E-STOP: NO: %s | NC: %s",
+                is_estop_no ? "yes" : " no",
+                is_estop_nc ? "yes" : " no");
+
+    uavcan::primitive::scalar::Bit_1_0 estop_msg;
+    estop_msg.value = (is_estop_no && is_estop_nc);
+
+    if (estop_pub)
+      estop_pub->publish(estop_msg);
   }
 
   /* Implement the RGB light on/off blinking. */
