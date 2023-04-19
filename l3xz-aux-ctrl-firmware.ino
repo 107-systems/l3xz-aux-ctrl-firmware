@@ -95,7 +95,7 @@ Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const 
 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
 
-//static Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
+static Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
 
 Subscription light_mode_subscription =
   node_hdl.create_subscription<Integer8_1_0>(
@@ -274,11 +274,9 @@ void setup()
   mcp2515.setNormalMode();
 
   /* Initialize NeoPixel control. */
-  /*
   neo_pixel_ctrl.begin();
   neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
   neo_pixel_ctrl.show();
-   */
 }
 
 void loop()
