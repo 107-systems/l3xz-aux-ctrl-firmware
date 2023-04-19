@@ -56,7 +56,7 @@ static int const MCP2515_INT_PIN = 20;
 static int const LED2_PIN        = 21; /* GP21 */
 static int const LED3_PIN        = 22; /* GP22 */
 
-static int const NEOPIXEL_NUM_PIXELS = 8; /* Popular NeoPixel ring size */
+static int const NEOPIXEL_NUM_PIXELS = 12; /* Number of NeoPixels on RGB ring. */
 
 static SPISettings const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE0};
 
@@ -84,6 +84,8 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
 
 DEBUG_INSTANCE(80, Serial);
 
+Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
+
 ArduinoMCP2515 mcp2515([]() { digitalWrite(MCP2515_CS_PIN, LOW); },
                        []() { digitalWrite(MCP2515_CS_PIN, HIGH); },
                        [](uint8_t const d) { return SPI.transfer(d); },
@@ -95,31 +97,7 @@ Node::Heap<Node::DEFAULT_O1HEAP_SIZE> node_heap;
 Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const & frame) { return mcp2515.transmit(frame); });
 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
-
-static Adafruit_NeoPixel neo_pixel_ctrl(NEOPIXEL_NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB);
-
-Subscription light_mode_subscription =
-  node_hdl.create_subscription<Integer8_1_0>(
-    ID_LIGHT_MODE,
-    [/*&neo_pixel_ctrl*/](Integer8_1_0 const & /*msg*/)
-    {
-      /*
-      if (msg.value == LIGHT_MODE_RED)
-        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 0, 0));
-      else if (msg.value == LIGHT_MODE_GREEN)
-        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 55, 0));
-      else if (msg.value == LIGHT_MODE_BLUE)
-        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 0, 55));
-      else if (msg.value == LIGHT_MODE_WHITE)
-        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
-      else if (msg.value == LIGHT_MODE_AMBER)
-        neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 40, 0));
-      else
-        neo_pixel_ctrl.clear();
-
-      neo_pixel_ctrl.show();
-       */
-    });
+Subscription light_mode_subscription;
 
 ServiceServer execute_command_srv = node_hdl.create_service_server<ExecuteCommand::Request_1_1, ExecuteCommand::Response_1_1>(
   ExecuteCommand::Request_1_1::_traits_::FixedPortId,
@@ -175,14 +153,17 @@ cyphal::support::platform::storage::littlefs::KeyValueStorage kv_storage(filesys
 
 /* REGISTER ***************************************************************************/
 
-static uint16_t node_id = std::numeric_limits<uint16_t>::max();
+static uint16_t     node_id            = std::numeric_limits<uint16_t>::max();
+static CanardPortID port_id_light_mode = std::numeric_limits<CanardPortID>::max();
 
 #if __GNUC__ >= 11
 
 const auto node_registry = node_hdl.create_registry();
 
-const auto reg_rw_cyphal_node_id          = node_registry->expose("cyphal.node.id", {true}, node_id);
-const auto reg_ro_cyphal_node_description = node_registry->route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
+const auto reg_rw_cyphal_node_id             = node_registry->expose("cyphal.node.id", {true}, node_id);
+const auto reg_ro_cyphal_node_description    = node_registry->route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
+const auto reg_rw_cyphal_sub_light_mode_id   = node_registry->expose("cyphal.sub.light_mode.id", {true}, port_id_light_mode);
+const auto reg_ro_cyphal_sub_light_mode_type = node_registry->route ("cyphal.sub.light_mode.type", {true}, []() { return "uavcan.primitive.scalar.Integer8.1.0"; });
 
 #endif /* __GNUC__ >= 11 */
 
@@ -232,6 +213,26 @@ void setup()
   if (node_id > CANARD_NODE_ID_MAX)
     node_id = 0;
   node_hdl.setNodeId(static_cast<CanardNodeID>(node_id));
+
+  light_mode_subscription = node_hdl.create_subscription<Integer8_1_0>
+    (port_id_light_mode,
+     [](Integer8_1_0 const & msg)
+     {
+       if (msg.value == LIGHT_MODE_RED)
+         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 0, 0));
+       else if (msg.value == LIGHT_MODE_GREEN)
+         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 55, 0));
+       else if (msg.value == LIGHT_MODE_BLUE)
+         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(0, 0, 55));
+       else if (msg.value == LIGHT_MODE_WHITE)
+         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
+       else if (msg.value == LIGHT_MODE_AMBER)
+         neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 40, 0));
+       else
+         neo_pixel_ctrl.clear();
+
+       neo_pixel_ctrl.show();
+     });
 
   /* NODE INFO **************************************************************************/
   static const auto node_info = node_hdl.create_node_info
