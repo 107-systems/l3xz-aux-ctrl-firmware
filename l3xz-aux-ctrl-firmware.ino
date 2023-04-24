@@ -9,9 +9,6 @@
  * INCLUDE
  **************************************************************************************/
 
-#include <pico/stdlib.h>
-#include <hardware/watchdog.h>
-
 #include <SPI.h>
 #include <Wire.h>
 
@@ -174,6 +171,8 @@ void setup()
   // while (!Serial) { } /* Only for debug. */
   delay(1000);
 
+  Debug.prettyPrintOn(); /* Enable pretty printing on a shell. */
+
   /* LITTLEFS/EEPROM ********************************************************************/
   Wire.begin();
 
@@ -194,7 +193,6 @@ void setup()
   }
 
 #if __GNUC__ >= 11
-  DBG_INFO("cyphal::support::load ... ");
   auto const rc_load = cyphal::support::load(kv_storage, *node_registry);
   if (rc_load.has_value()) {
     DBG_ERROR("cyphal::support::load failed with %d", static_cast<int>(rc_load.value()));
@@ -283,7 +281,7 @@ void setup()
            CAN_FILTER_LIGHT_MODE.extended_mask,
            CAN_FILTER_LIGHT_MODE.extended_can_id);
 
-  /* Only pass messages with ID 0 to receive buffer #1 (filtering out most). */
+  /* Only allow messages containing light mode information to pass. */
   uint32_t const RXMB1_MASK = CAN_FILTER_LIGHT_MODE.extended_mask;
   size_t const RXMB1_FILTER_SIZE = 4;
   uint32_t const RXMB1_FILTER[RXMB1_FILTER_SIZE] =
@@ -308,9 +306,14 @@ void setup()
 
 void loop()
 {
+  /* Deal with all pending events of the MCP2515 -
+   * signaled by the INT pin being driven LOW.
+   */
   while(digitalRead(MCP2515_INT_PIN) == LOW)
     mcp2515.onExternalEventHandler();
 
+  /* Process all pending Cyphal actions.
+   */
   node_hdl.spinSome();
 
   /* Publish all the gathered data, although at various
@@ -322,8 +325,7 @@ void loop()
 
   unsigned long const now = millis();
 
-  /* Publish the heartbeat once/second */
-  if(now - prev_heartbeat > UPDATE_PERIOD_HEARTBEAT_ms)
+  if((now - prev_heartbeat) > UPDATE_PERIOD_HEARTBEAT_ms)
   {
     prev_heartbeat = now;
 
@@ -340,8 +342,7 @@ void loop()
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
 
-  /* Publish the state of the emergency stop button. */
-  if(now - prev_estop > UPDATE_PERIOD_ESTOP_ms)
+  if((now - prev_estop) > UPDATE_PERIOD_ESTOP_ms)
   {
     prev_estop = now;
 
