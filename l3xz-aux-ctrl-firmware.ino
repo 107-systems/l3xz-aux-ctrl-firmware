@@ -14,7 +14,6 @@
 
 #include <SPI.h>
 #include <Wire.h>
-#include <Servo.h>
 
 #include <107-Arduino-Cyphal.h>
 #include <107-Arduino-Cyphal-Support.h>
@@ -60,8 +59,6 @@ static uint16_t const UPDATE_PERIOD_BLINK_ms     = 1000;
 static uint16_t const UPDATE_PERIOD_ESTOP_ms     = 50;
 static uint16_t const UPDATE_PERIOD_HEARTBEAT_ms = 1000;
 
-static CanardPortID const ID_LIGHT_MODE = 2010U;
-
 static int8_t const LIGHT_MODE_RED   = 1;
 static int8_t const LIGHT_MODE_GREEN = 2;
 static int8_t const LIGHT_MODE_BLUE  = 3;
@@ -99,10 +96,7 @@ Publisher<uavcan::primitive::scalar::Bit_1_0> estop_pub;
 uavcan::primitive::scalar::Integer8_1_0 light_mode_msg{LIGHT_MODE_WHITE};
 Subscription light_mode_subscription;
 
-ServiceServer execute_command_srv = node_hdl.create_service_server<ExecuteCommand::Request_1_1, ExecuteCommand::Response_1_1>(
-  ExecuteCommand::Request_1_1::_traits_::FixedPortId,
-  2*1000*1000UL,
-  onExecuteCommand_1_1_Request_Received);
+ServiceServer execute_command_srv = node_hdl.create_service_server<ExecuteCommand::Request_1_1, ExecuteCommand::Response_1_1>(2*1000*1000UL, onExecuteCommand_1_1_Request_Received);
 
 /* LITTLEFS/EEPROM ********************************************************************/
 
