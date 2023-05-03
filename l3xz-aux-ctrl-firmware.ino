@@ -56,6 +56,8 @@ static uint16_t const UPDATE_PERIOD_BLINK_ms     = 1000;
 static uint16_t const UPDATE_PERIOD_ESTOP_ms     = 50;
 static uint16_t const UPDATE_PERIOD_HEARTBEAT_ms = 1000;
 
+static uint32_t const WATCHDOG_DELAY_ms = 1000;
+
 static int8_t const LIGHT_MODE_RED   = 1;
 static int8_t const LIGHT_MODE_GREEN = 2;
 static int8_t const LIGHT_MODE_BLUE  = 3;
@@ -303,6 +305,10 @@ void setup()
   neo_pixel_ctrl.fill(neo_pixel_ctrl.Color(55, 55, 55));
   neo_pixel_ctrl.show();
 
+  /* Enable watchdog. */
+  rp2040.wdt_begin(WATCHDOG_DELAY_ms);
+  rp2040.wdt_reset();
+
   DBG_INFO("Init complete.");
 }
 
@@ -393,6 +399,12 @@ void loop()
     isTurnedOn ? turnOff() : turnOn(light_mode_msg.value);
     isTurnedOn = !isTurnedOn;
   }
+
+  /* Feed the watchdog only if not an async reset is
+   * pending because we want to restart via yakut.
+   */
+  if (!cyphal::support::platform::is_async_reset_pending())
+    rp2040.wdt_reset();
 }
 
 /**************************************************************************************
@@ -427,6 +439,8 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
       rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
       return rsp;
     }
+    /* Feed the watchdog. */
+    rp2040.wdt_reset();
 #if __GNUC__ >= 11
     auto const rc_save = cyphal::support::save(kv_storage, *node_registry);
     if (rc_save.has_value())
@@ -435,7 +449,9 @@ ExecuteCommand::Response_1_1 onExecuteCommand_1_1_Request_Received(ExecuteComman
       rsp.status = ExecuteCommand::Response_1_1::STATUS_FAILURE;
       return rsp;
     }
-     rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
+    /* Feed the watchdog. */
+    rp2040.wdt_reset();
+    rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
 #endif /* __GNUC__ >= 11 */
     (void)filesystem.unmount();
     rsp.status = ExecuteCommand::Response_1_1::STATUS_SUCCESS;
