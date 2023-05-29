@@ -47,6 +47,8 @@ static int const LED2_PIN         = 21; /* GP21 */
 static int const LED3_PIN         = 22; /* GP22 */
 static int const EMERGENCY_NO_PIN =  6; /* INPUT0 */
 static int const EMERGENCY_NC_PIN =  7; /* INPUT0 */
+static int const VALVE0_INPUT_PIN = 27;
+static int const VALVE1_INPUT_PIN = 28;
 
 static int const NEOPIXEL_NUM_PIXELS = 12; /* Number of NeoPixels on RGB ring. */
 
@@ -54,6 +56,8 @@ static SPISettings const MCP2515x_SPI_SETTING{10*1000*1000UL, MSBFIRST, SPI_MODE
 
 static uint16_t const UPDATE_PERIOD_BLINK_ms     = 1000;
 static uint16_t const UPDATE_PERIOD_ESTOP_ms     = 50;
+static uint16_t const UPDATE_PERIOD_VALVE0_ms    = 1000;
+static uint16_t const UPDATE_PERIOD_VALVE1_ms    = 1000;
 static uint16_t const UPDATE_PERIOD_HEARTBEAT_ms = 1000;
 
 static uint32_t const WATCHDOG_DELAY_ms = 1000;
@@ -93,6 +97,8 @@ Node node_hdl(node_heap.data(), node_heap.size(), micros, [] (CanardFrame const 
 
 Publisher<Heartbeat_1_0> heartbeat_pub = node_hdl.create_publisher<Heartbeat_1_0>(1*1000*1000UL /* = 1 sec in usecs. */);
 Publisher<uavcan::primitive::scalar::Bit_1_0> estop_pub;
+Publisher<uavcan::primitive::scalar::Integer16_1_0> valve0_pub;
+Publisher<uavcan::primitive::scalar::Integer16_1_0> valve1_pub;
 
 uavcan::primitive::scalar::Integer8_1_0 light_mode_msg{LIGHT_MODE_WHITE};
 Subscription light_mode_subscription;
@@ -151,17 +157,23 @@ cyphal::support::platform::storage::littlefs::KeyValueStorage kv_storage(filesys
 static uint16_t     node_id            = std::numeric_limits<uint16_t>::max();
 static CanardPortID port_id_light_mode = std::numeric_limits<CanardPortID>::max();
 static CanardPortID port_id_estop      = std::numeric_limits<CanardPortID>::max();
+static CanardPortID port_id_valve0     = std::numeric_limits<CanardPortID>::max();
+static CanardPortID port_id_valve1     = std::numeric_limits<CanardPortID>::max();
 
 #if __GNUC__ >= 11
 
 const auto node_registry = node_hdl.create_registry();
 
-const auto reg_rw_cyphal_node_id             = node_registry->expose("cyphal.node.id", {true}, node_id);
-const auto reg_ro_cyphal_node_description    = node_registry->route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
-const auto reg_rw_cyphal_sub_light_mode_id   = node_registry->expose("cyphal.sub.light_mode.id", {true}, port_id_light_mode);
-const auto reg_ro_cyphal_sub_light_mode_type = node_registry->route ("cyphal.sub.light_mode.type", {true}, []() { return "uavcan.primitive.scalar.Integer8.1.0"; });
-const auto reg_rw_cyphal_pub_estop_id        = node_registry->expose("cyphal.pub.estop.id", {true}, port_id_estop);
-const auto reg_ro_cyphal_pub_estop_type      = node_registry->route ("cyphal.pub.estop.type", {true}, []() { return "uavcan.primitive.scalar.Bit.1.0"; });
+const auto reg_rw_cyphal_node_id              = node_registry->expose("cyphal.node.id", {true}, node_id);
+const auto reg_ro_cyphal_node_description     = node_registry->route ("cyphal.node.description", {true}, []() { return "L3X-Z AUX_CONTROLLER"; });
+const auto reg_rw_cyphal_sub_light_mode_id    = node_registry->expose("cyphal.sub.light_mode.id", {true}, port_id_light_mode);
+const auto reg_ro_cyphal_sub_light_mode_type  = node_registry->route ("cyphal.sub.light_mode.type", {true}, []() { return "uavcan.primitive.scalar.Integer8.1.0"; });
+const auto reg_rw_cyphal_pub_estop_id         = node_registry->expose("cyphal.pub.estop.id", {true}, port_id_estop);
+const auto reg_ro_cyphal_pub_estop_type       = node_registry->route ("cyphal.pub.estop.type", {true}, []() { return "uavcan.primitive.scalar.Bit.1.0"; });
+const auto reg_rw_cyphal_pub_valve0input_id   = node_registry->route ("cyphal.pub.valve0input.id", {true}, port_id_valve0);
+const auto reg_ro_cyphal_pub_valve0input_type = node_registry->route ("cyphal.pub.valve0input.type", {true}, []() { return "cyphal.primitive.scalar.Integer16.1.0"; });
+const auto reg_rw_cyphal_pub_valve1input_id   = node_registry->route ("cyphal.pub.valve1input.id", {true}, port_id_valve1);
+const auto reg_ro_cyphal_pub_valve1input_type = node_registry->route ("cyphal.pub.valve1input.type", {true}, []() { return "cyphal.primitive.scalar.Integer16.1.0"; });
 
 #endif /* __GNUC__ >= 11 */
 
@@ -217,6 +229,10 @@ void setup()
     light_mode_subscription = node_hdl.create_subscription<uavcan::primitive::scalar::Integer8_1_0>(port_id_light_mode, [](uavcan::primitive::scalar::Integer8_1_0 const & msg) { light_mode_msg = msg; });
   if (port_id_estop != std::numeric_limits<CanardPortID>::max())
     estop_pub = node_hdl.create_publisher<uavcan::primitive::scalar::Bit_1_0>(port_id_estop, 1*1000*1000UL /* = 1 sec in usecs. */);
+  if (port_id_valve0 != std::numeric_limits<CanardPortID>::max())
+    valve0_pub = node_hdl.create_publisher<uavcan::primitive::scalar::Integer16_1_0>(port_id_valve0, 1*1000*1000UL /* = 1 sec in usecs. */);
+  if (port_id_valve1 != std::numeric_limits<CanardPortID>::max())
+    valve1_pub = node_hdl.create_publisher<uavcan::primitive::scalar::Integer16_1_0>(port_id_valve1, 1*1000*1000UL /* = 1 sec in usecs. */);
 
   DBG_INFO("Node ID: %d\n\r\tLIGHT ID = %d\n\r\tESTOP ID = %d",
            node_id, port_id_light_mode, port_id_estop);
@@ -229,7 +245,7 @@ void setup()
     /* cyphal.node.Version.1.0 hardware_version */
     1, 0,
     /* cyphal.node.Version.1.0 software_version */
-    0, 1,
+    0, 2,
     /* saturated uint64 software_vcs_revision_id */
 #ifdef CYPHAL_NODE_INFO_GIT_VERSION
     CYPHAL_NODE_INFO_GIT_VERSION,
@@ -330,6 +346,8 @@ void loop()
   static unsigned long prev_blink = 0;
   static unsigned long prev_estop = 0;
   static unsigned long prev_heartbeat = 0;
+  static unsigned long prev_valve0 = 0;
+  static unsigned long prev_valve1 = 0;
 
   unsigned long const now = millis();
 
@@ -348,6 +366,32 @@ void loop()
 
     digitalWrite(LED2_PIN, !digitalRead(LED2_PIN));
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+  }
+
+  if((now - prev_valve0) > UPDATE_PERIOD_VALVE0_ms)
+  {
+    prev_valve0 = now;
+
+    uint16_t const analog = analogRead(VALVE0_INPUT_PIN);
+
+    uavcan::primitive::scalar::Integer16_1_0 valve0_msg;
+    valve0_msg.value = analog;
+
+    if (valve0_pub)
+      valve0_pub->publish(valve0_msg);
+  }
+
+  if((now - prev_valve1) > UPDATE_PERIOD_VALVE1_ms)
+  {
+    prev_valve1 = now;
+
+    uint16_t const analog = analogRead(VALVE1_INPUT_PIN);
+
+    uavcan::primitive::scalar::Integer16_1_0 valve1_msg;
+    valve1_msg.value = analog;
+
+    if (valve1_pub)
+      valve1_pub->publish(valve1_msg);
   }
 
   if((now - prev_estop) > UPDATE_PERIOD_ESTOP_ms)
