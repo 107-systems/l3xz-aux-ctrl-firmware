@@ -170,9 +170,9 @@ const auto reg_rw_cyphal_sub_light_mode_id    = node_registry->expose("cyphal.su
 const auto reg_ro_cyphal_sub_light_mode_type  = node_registry->route ("cyphal.sub.light_mode.type", {true}, []() { return "uavcan.primitive.scalar.Integer8.1.0"; });
 const auto reg_rw_cyphal_pub_estop_id         = node_registry->expose("cyphal.pub.estop.id", {true}, port_id_estop);
 const auto reg_ro_cyphal_pub_estop_type       = node_registry->route ("cyphal.pub.estop.type", {true}, []() { return "uavcan.primitive.scalar.Bit.1.0"; });
-const auto reg_rw_cyphal_pub_valve0input_id   = node_registry->route ("cyphal.pub.valve0input.id", {true}, port_id_valve0);
+const auto reg_rw_cyphal_pub_valve0input_id   = node_registry->expose("cyphal.pub.valve0input.id", {true}, port_id_valve0);
 const auto reg_ro_cyphal_pub_valve0input_type = node_registry->route ("cyphal.pub.valve0input.type", {true}, []() { return "cyphal.primitive.scalar.Integer16.1.0"; });
-const auto reg_rw_cyphal_pub_valve1input_id   = node_registry->route ("cyphal.pub.valve1input.id", {true}, port_id_valve1);
+const auto reg_rw_cyphal_pub_valve1input_id   = node_registry->expose("cyphal.pub.valve1input.id", {true}, port_id_valve1);
 const auto reg_ro_cyphal_pub_valve1input_type = node_registry->route ("cyphal.pub.valve1input.type", {true}, []() { return "cyphal.primitive.scalar.Integer16.1.0"; });
 
 #endif /* __GNUC__ >= 11 */
