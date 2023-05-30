@@ -369,7 +369,32 @@ void loop()
 
   auto aux_analogInputToPascal = [](uint16_t const adc_in)
   {
-    return 0.0f;
+#ifndef ARDUINO_RASPBERRY_PI_PICO
+# error "Check ADC conversion for your platform or you may get erroneous results."
+#endif
+    static float constexpr V_REF = 3.3f;
+    static float constexpr V_LSB = V_REF / 4096.0f;
+
+    float const v_shunt = static_cast<float>(adc_in) * V_LSB;
+
+    static float constexpr R_SHUNT = 150.0f;
+    float const i_shunt = v_shunt / R_SHUNT;
+
+    static float constexpr I_MIN =  4.0 / 1000.0f;
+    static float constexpr I_MAX = 20.0 / 1000.0f;
+    if (i_shunt < I_MIN) return std::numeric_limits<float>::min();
+    if (i_shunt > I_MAX) return std::numeric_limits<float>::min();
+
+    static float constexpr P_MIN = 0;
+    static float constexpr P_MAX = 25;
+
+    static float const k_shunt = (P_MAX - P_MIN) / (I_MAX - I_MIN);
+    static float const d_shunt = P_MIN - k_shunt * I_MIN;
+
+    float const pressure_bar = i_shunt * k_shunt + d_shunt;
+    float const pressure_pascal = pressure_bar * 100*1000UL;
+
+    return pressure_pascal;
   };
 
   if((now - prev_pressure_0) > UPDATE_PERIOD_VALVE_0_ms)
