@@ -6,7 +6,7 @@
 [![Spell Check](https://github.com/107-systems/l3xz-aux-ctrl-firmware/workflows/Spell%20Check/badge.svg)](https://github.com/107-systems/l3xz-aux-ctrl-firmware/actions?workflow=Spell+Check)
 [![Compile Examples](https://github.com/107-systems/l3xz-aux-ctrl-firmware/workflows/Compile/badge.svg)](https://github.com/107-systems/l3xz-aux-ctrl-firmware/actions?workflow=Compile)
 
-Firmware for the [L3X-Z](https://github.com/107-systems/l3xz) auxiliary controller which is based on the [OpenCyphalPicoBase](https://github.com/generationmake/OpenCyphalPicoBase) board.
+Firmware for the [L3X-Z](https://github.com/107-systems/l3xz) auxiliary controller which is based on the [CyphalPicoBase/CAN](https://github.com/generationmake/CyphalPicoBase-CAN) board.
 
 <p align="center">
   <a href="https://github.com/107-systems/l3xz"><img src="https://raw.githubusercontent.com/107-systems/.github/main/logo/l3xz-logo-memento-mori-github.png" width="40%"></a>
